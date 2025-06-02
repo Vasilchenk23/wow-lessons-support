@@ -38,9 +38,9 @@ bot.hears(["Маю проблему з купленими уроками", "Хо
 
   ctx.reply("Вітаємо! Зараз підключимо менеджера...");
 
-  for (const managerId of listManagers()) {
+  for (const manager of listManagers()) {
     await bot.telegram.sendMessage(
-      managerId,
+      manager.id,
       `❗Новий запит від @${clientUsername}\nТип: ${message}`,
       Markup.inlineKeyboard([
         Markup.button.callback(`🔗 Взяти клієнта ${clientId}`, `take_${clientId}`),
@@ -55,6 +55,10 @@ bot.action(/^take_(\d+)$/, async (ctx) => {
   const clientId = ctx.match[1];
 
   if (!isManager(managerId)) return;
+
+  if (parseInt(clientId) === managerId) {
+    return ctx.reply("⛔ Ви не можете обслуговувати самі себе.");
+  }
 
   const current = getManagerByClient(clientId);
   if (current) {
