@@ -15,6 +15,7 @@ const {
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const ADMIN_ID = parseInt(process.env.ADMIN_ID);
+const inviteMessages = {};
 
 bot.start((ctx) => {
   const id = ctx.from.id;
@@ -35,7 +36,6 @@ bot.hears(
   ["Маю проблему з купленими уроками", "Хочу купити WoW-уроки"],
   async (ctx) => {
     const clientId = ctx.from.id;
-
     if (getManagerByClient(clientId)) {
       return ctx.reply("🕐 Ваш запит вже обробляється. Очікуйте, будь ласка.");
     }
@@ -45,8 +45,10 @@ bot.hears(
 
     ctx.reply("Вітаємо! Зараз підключимо менеджера...");
 
+    inviteMessages[clientId] = [];
+
     for (const manager of listManagers()) {
-      await bot.telegram.sendMessage(
+      const sent = await bot.telegram.sendMessage(
         manager.id,
         `❗Новий запит від @${clientUsername}\nТип: ${message}`,
         Markup.inlineKeyboard([
@@ -57,6 +59,11 @@ bot.hears(
           Markup.button.callback("❌ Відхилити", `decline_${clientId}`),
         ])
       );
+
+      inviteMessages[clientId].push({
+        managerId: manager.id,
+        messageId: sent.message_id,
+      });
     }
   }
 );
@@ -94,6 +101,27 @@ bot.action(/^take_(\d+)$/, async (ctx) => {
     clientId,
     "👤 Менеджер приєднався до чату. Ви можете писати повідомлення."
   );
+
+  for (const entry of inviteMessages[clientId] || []) {
+    if (entry.managerId !== managerId) {
+      await bot.telegram.editMessageReplyMarkup(
+        entry.managerId,
+        entry.messageId,
+        null,
+        {
+          inline_keyboard: [
+            [
+              {
+                text: "⛔ Клієнт вже обслуговується",
+                callback_data: "disabled",
+              },
+            ],
+          ],
+        }
+      );
+    }
+  }
+  delete inviteMessages[clientId];
 });
 
 bot.action(/^end_(\d+)$/, async (ctx) => {
@@ -111,6 +139,10 @@ bot.action(/^end_(\d+)$/, async (ctx) => {
     "✅ Дякуємо за звернення! Якщо виникнуть ще питання — звертайтесь 🧡"
   );
   ctx.reply("🟢 Діалог завершено.");
+});
+
+bot.action("disabled", (ctx) => {
+  ctx.answerCbQuery("⛔ Цей клієнт вже обслуговується");
 });
 
 bot.command("add_manager", (ctx) => {
