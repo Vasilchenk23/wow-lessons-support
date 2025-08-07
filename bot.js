@@ -4,13 +4,13 @@ const {
   isManager,
   addManager,
   removeManager,
-  listManagers
+  listManagers,
 } = require("./utils/role");
 const {
   assignClient,
   getManagerByClient,
   getClientByManager,
-  removeSession
+  removeSession,
 } = require("./logic/handlers");
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
@@ -25,30 +25,41 @@ bot.start((ctx) => {
       "Привіт! Оберіть, що вас цікавить:",
       Markup.keyboard([
         ["Маю проблему з купленими уроками"],
-        ["Хочу купити WoW-уроки"]
+        ["Хочу купити WoW-уроки"],
       ]).resize()
     );
   }
 });
 
-bot.hears(["Маю проблему з купленими уроками", "Хочу купити WoW-уроки"], async (ctx) => {
-  const clientId = ctx.from.id;
-  const clientUsername = ctx.from.username || ctx.from.first_name;
-  const message = ctx.message.text;
+bot.hears(
+  ["Маю проблему з купленими уроками", "Хочу купити WoW-уроки"],
+  async (ctx) => {
+    const clientId = ctx.from.id;
 
-  ctx.reply("Вітаємо! Зараз підключимо менеджера...");
+    if (getManagerByClient(clientId)) {
+      return ctx.reply("🕐 Ваш запит вже обробляється. Очікуйте, будь ласка.");
+    }
 
-  for (const manager of listManagers()) {
-    await bot.telegram.sendMessage(
-      manager.id,
-      `❗Новий запит від @${clientUsername}\nТип: ${message}`,
-      Markup.inlineKeyboard([
-        Markup.button.callback(`🔗 Взяти клієнта ${clientId}`, `take_${clientId}`),
-        Markup.button.callback("❌ Відхилити", `decline_${clientId}`)
-      ])
-    );
+    const clientUsername = ctx.from.username || ctx.from.first_name;
+    const message = ctx.message.text;
+
+    ctx.reply("Вітаємо! Зараз підключимо менеджера...");
+
+    for (const manager of listManagers()) {
+      await bot.telegram.sendMessage(
+        manager.id,
+        `❗Новий запит від @${clientUsername}\nТип: ${message}`,
+        Markup.inlineKeyboard([
+          Markup.button.callback(
+            `🔗 Взяти клієнта ${clientId}`,
+            `take_${clientId}`
+          ),
+          Markup.button.callback("❌ Відхилити", `decline_${clientId}`),
+        ])
+      );
+    }
   }
-});
+);
 
 bot.action(/^take_(\d+)$/, async (ctx) => {
   const managerId = ctx.from.id;
@@ -62,7 +73,11 @@ bot.action(/^take_(\d+)$/, async (ctx) => {
 
   const current = getManagerByClient(clientId);
   if (current) {
-    return ctx.reply("Цей клієнт вже обслуговується іншим менеджером.");
+    if (current == managerId) {
+      return ctx.reply("✅ Ви вже обслуговуєте цього клієнта.");
+    } else {
+      return ctx.reply("⛔ Цей клієнт вже обслуговується іншим менеджером.");
+    }
   }
 
   assignClient(clientId, managerId);
@@ -71,7 +86,7 @@ bot.action(/^take_(\d+)$/, async (ctx) => {
   await ctx.reply(
     "🔚 Коли завершите спілкування, натисніть кнопку нижче:",
     Markup.inlineKeyboard([
-      Markup.button.callback("Завершити діалог", `end_${clientId}`)
+      Markup.button.callback("Завершити діалог", `end_${clientId}`),
     ])
   );
 
@@ -121,9 +136,11 @@ bot.command("list_managers", (ctx) => {
   if (ctx.from.id !== ADMIN_ID) return ctx.reply("⛔ Немає доступу.");
   const list = listManagers();
   if (list.length === 0) return ctx.reply("📭 Менеджери не додані.");
-  ctx.reply("📋 Список менеджерів:\n" + list.map(m => `👤 ${m.name} (ID: ${m.id})`).join("\n"));
+  ctx.reply(
+    "📋 Список менеджерів:\n" +
+      list.map((m) => `👤 ${m.name} (ID: ${m.id})`).join("\n")
+  );
 });
-
 
 bot.on("message", async (ctx) => {
   const userId = ctx.from.id;
@@ -138,6 +155,8 @@ bot.on("message", async (ctx) => {
     const managerId = getManagerByClient(userId);
     if (managerId) {
       await bot.telegram.copyMessage(managerId, userId, msg.message_id);
+    } else {
+      ctx.reply("🟡 Ваш запит ще не обробляється. Оберіть опцію з меню.");
     }
   }
 });

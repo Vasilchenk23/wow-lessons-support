@@ -1,9 +1,17 @@
-const fs = require('fs');
-const sessionsFile = './data/sessions.json';
+const fs = require("fs");
+const sessionsFile = "./data/sessions.json";
 
 function loadSessions() {
   if (!fs.existsSync(sessionsFile)) return {};
-  return JSON.parse(fs.readFileSync(sessionsFile));
+
+  const raw = fs.readFileSync(sessionsFile, "utf8");
+
+  try {
+    return raw.trim() ? JSON.parse(raw) : {};
+  } catch (err) {
+    console.error("[❌] Помилка у sessions.json:", err.message);
+    return {};
+  }
 }
 
 function saveSessions(sessions) {
@@ -23,7 +31,7 @@ function getManagerByClient(clientId) {
 
 function getClientByManager(managerId) {
   const sessions = loadSessions();
-  return Object.keys(sessions).find(key => sessions[key] == managerId);
+  return Object.keys(sessions).find((key) => sessions[key] == managerId);
 }
 
 function removeSession(clientId) {
@@ -37,5 +45,5 @@ module.exports = {
   assignClient,
   getManagerByClient,
   getClientByManager,
-  removeSession
+  removeSession,
 };
