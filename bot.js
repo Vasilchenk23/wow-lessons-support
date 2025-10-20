@@ -64,7 +64,6 @@ bot.hears(
     await ctx.reply("✍️ Введіть, будь ласка, ваше ім’я:");
   }
 );
-
 bot.on("text", async (ctx) => {
   const clientId = ctx.from.id;
   const msg = ctx.message.text.trim();
