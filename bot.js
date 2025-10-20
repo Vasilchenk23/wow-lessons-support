@@ -1,11 +1,13 @@
 const { Telegraf, Markup } = require("telegraf");
 require("dotenv").config();
+
 const {
   isManager,
   addManager,
   removeManager,
   listManagers,
 } = require("./utils/role");
+
 const {
   assignClient,
   getManagerByClient,
@@ -15,15 +17,27 @@ const {
 
 const bot = new Telegraf(process.env.BOT_TOKEN);
 const ADMIN_ID = parseInt(process.env.ADMIN_ID);
+
 const inviteMessages = {};
+const userData = {};
+
+function isValidPhone(phone) {
+  const cleaned = phone.replace(/[\s\-()]/g, "");
+  return /^(\+?380\d{9}|0\d{9})$/.test(cleaned);
+}
+
+function isValidEmail(email) {
+  return /^[^\s@]+@[^\s@]+\.[a-zA-Z]{2,}$/.test(email);
+}
 
 bot.start((ctx) => {
   const id = ctx.from.id;
+
   if (isManager(id)) {
     ctx.reply("👔 Ви увійшли як менеджер.");
   } else {
     ctx.reply(
-      "Привіт! Оберіть, що вас цікавить:",
+      "Привіт! 👋 Оберіть, що вас цікавить:",
       Markup.keyboard([
         ["Маю проблему з купленими уроками"],
         ["Хочу купити WoW-уроки"],
@@ -36,59 +50,144 @@ bot.hears(
   ["Маю проблему з купленими уроками", "Хочу купити WoW-уроки"],
   async (ctx) => {
     const clientId = ctx.from.id;
+
     if (getManagerByClient(clientId)) {
       return ctx.reply("🕐 Ваш запит вже обробляється. Очікуйте, будь ласка.");
     }
 
-    const clientUsername = ctx.from.username || ctx.from.first_name;
-    const message = ctx.message.text;
+    userData[clientId] = {
+      step: "name",
+      type: ctx.message.text,
+      username: ctx.from.username || ctx.from.first_name || "Без_імені",
+    };
 
-    ctx.reply("Вітаємо! Зараз підключимо менеджера...");
-
-    inviteMessages[clientId] = [];
-
-    for (const manager of listManagers()) {
-      const sent = await bot.telegram.sendMessage(
-        manager.id,
-        `❗Новий запит від @${clientUsername}\nТип: ${message}`,
-        Markup.inlineKeyboard([
-          Markup.button.callback(
-            `🔗 Взяти клієнта ${clientId}`,
-            `take_${clientId}`
-          ),
-          Markup.button.callback("❌ Відхилити", `decline_${clientId}`),
-        ])
-      );
-
-      inviteMessages[clientId].push({
-        managerId: manager.id,
-        messageId: sent.message_id,
-      });
-    }
+    await ctx.reply("✍️ Введіть, будь ласка, ваше ім’я:");
   }
 );
+
+bot.on("text", async (ctx) => {
+  const clientId = ctx.from.id;
+  const msg = ctx.message.text.trim();
+  const current = userData[clientId];
+
+  if (current && current.step) {
+    try {
+      if (current.step === "name") {
+        if (msg.length < 2 || msg.length > 50) {
+          return ctx.reply(
+            "⚠️ Ім’я занадто коротке або довге. Введіть ще раз:"
+          );
+        }
+        current.name = msg;
+        current.step = "phone";
+        return ctx.reply(
+          "📞 Введіть ваш номер телефону (наприклад +380931234567):"
+        );
+      }
+
+      if (current.step === "phone") {
+        if (!isValidPhone(msg)) {
+          return ctx.reply(
+            "❌ Невірний формат номера.\nПриклад: +380931234567 або 0931234567.\nСпробуйте ще раз:"
+          );
+        }
+        current.phone = msg.replace(/\s+/g, "");
+        current.step = "email";
+        return ctx.reply("📧 Введіть вашу електронну пошту:");
+      }
+
+      if (current.step === "email") {
+        if (!isValidEmail(msg)) {
+          return ctx.reply(
+            "❌ Невірний формат email.\nПриклад: example@gmail.com\nВведіть ще раз:"
+          );
+        }
+
+        current.email = msg.toLowerCase();
+        current.step = "done";
+
+        await ctx.reply("✅ Дякуємо! Зараз підключимо менеджера...");
+
+        const { name, phone, email, type, username } = current;
+        inviteMessages[clientId] = [];
+
+        for (const manager of listManagers()) {
+          try {
+            const sent = await bot.telegram.sendMessage(
+              manager.id,
+              `📥 Новий запит від @${username}\n\n🧑 Ім’я: ${name}\n📞 Телефон: ${phone}\n📧 Email: ${email}\n💬 Тип запиту: ${type}`,
+              Markup.inlineKeyboard([
+                Markup.button.callback(
+                  `🔗 Взяти клієнта ${clientId}`,
+                  `take_${clientId}`
+                ),
+                Markup.button.callback("❌ Відхилити", `decline_${clientId}`),
+              ])
+            );
+
+            inviteMessages[clientId].push({
+              managerId: manager.id,
+              messageId: sent.message_id,
+            });
+          } catch (err) {
+            console.error(`Помилка відправки менеджеру ${manager.id}:`, err);
+          }
+        }
+
+        return;
+      }
+    } catch (err) {
+      console.error("❌ Помилка в обробці даних користувача:", err);
+      ctx.reply("⚠️ Сталася помилка. Спробуйте ще раз пізніше.");
+    }
+  }
+
+  try {
+    const userId = ctx.from.id;
+
+    if (isManager(userId)) {
+      const clientId = getClientByManager(userId);
+      if (clientId) {
+        return bot.telegram.copyMessage(
+          clientId,
+          userId,
+          ctx.message.message_id
+        );
+      }
+    } else {
+      const managerId = getManagerByClient(userId);
+      if (managerId) {
+        return bot.telegram.copyMessage(
+          managerId,
+          userId,
+          ctx.message.message_id
+        );
+      } else {
+        ctx.reply("🟡 Ваш запит ще не обробляється. Оберіть опцію з меню.");
+      }
+    }
+  } catch (err) {
+    console.error("💥 Помилка при передачі повідомлення:", err);
+  }
+});
 
 bot.action(/^take_(\d+)$/, async (ctx) => {
   const managerId = ctx.from.id;
   const clientId = ctx.match[1];
 
-  if (!isManager(managerId)) return;
+  if (!isManager(managerId)) return ctx.reply("⛔ Ви не маєте прав.");
 
-  if (parseInt(clientId) === managerId) {
+  if (parseInt(clientId) === managerId)
     return ctx.reply("⛔ Ви не можете обслуговувати самі себе.");
-  }
 
   const current = getManagerByClient(clientId);
   if (current) {
-    if (current == managerId) {
+    if (current == managerId)
       return ctx.reply("✅ Ви вже обслуговуєте цього клієнта.");
-    } else {
-      return ctx.reply("⛔ Цей клієнт вже обслуговується іншим менеджером.");
-    }
+    else return ctx.reply("⛔ Клієнта вже обслуговує інший менеджер.");
   }
 
   assignClient(clientId, managerId);
-
   await ctx.reply(`✅ Ви взяли клієнта ${clientId}`);
   await ctx.reply(
     "🔚 Коли завершите спілкування, натисніть кнопку нижче:",
@@ -121,7 +220,9 @@ bot.action(/^take_(\d+)$/, async (ctx) => {
       );
     }
   }
+
   delete inviteMessages[clientId];
+  delete userData[clientId];
 });
 
 bot.action(/^end_(\d+)$/, async (ctx) => {
@@ -174,24 +275,10 @@ bot.command("list_managers", (ctx) => {
   );
 });
 
-bot.on("message", async (ctx) => {
-  const userId = ctx.from.id;
-  const msg = ctx.message;
+bot
+  .launch()
+  .then(() => console.log("🤖 Бот успішно запущений"))
+  .catch((err) => console.error("❌ Помилка при запуску:", err));
 
-  if (isManager(userId)) {
-    const clientId = getClientByManager(userId);
-    if (clientId) {
-      await bot.telegram.copyMessage(clientId, userId, msg.message_id);
-    }
-  } else {
-    const managerId = getManagerByClient(userId);
-    if (managerId) {
-      await bot.telegram.copyMessage(managerId, userId, msg.message_id);
-    } else {
-      ctx.reply("🟡 Ваш запит ще не обробляється. Оберіть опцію з меню.");
-    }
-  }
-});
-
-bot.launch();
-console.log("🤖 Бот запущено");
+process.once("SIGINT", () => bot.stop("SIGINT"));
+process.once("SIGTERM", () => bot.stop("SIGTERM"));
