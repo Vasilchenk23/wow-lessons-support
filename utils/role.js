@@ -36,7 +36,6 @@ function removeManager(id) {
 function listManagers() {
   return loadManagers();
 }
-
 module.exports = {
   isManager,
   addManager,
