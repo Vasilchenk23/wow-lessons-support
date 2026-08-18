@@ -287,10 +287,17 @@ bot.action("disabled", (ctx) =>
   ctx.answerCbQuery("⛔ Цей клієнт вже обслуговується")
 );
 
-bot
-  .launch()
-  .then(() => console.log("🤖 Бот успішно запущений"))
-  .catch((err) => console.error("❌ Помилка при запуску:", err));
-
 process.once("SIGINT", () => bot.stop("SIGINT"));
 process.once("SIGTERM", () => bot.stop("SIGTERM"));
+
+async function startBot() {
+  try {
+    await bot.launch({ dropPendingUpdates: true });
+    console.log("🤖 Бот успішно запущений");
+  } catch (error) {
+    console.error("❌ Не вдалося запустити бота:", error);
+    process.exitCode = 1;
+  }
+}
+
+startBot();
